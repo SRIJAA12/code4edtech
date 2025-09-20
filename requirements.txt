@@ -1,0 +1,17 @@
+streamlit==1.28.0
+pandas==2.1.3
+numpy==1.24.3
+plotly==5.17.0
+matplotlib==3.7.2
+seaborn==0.12.2
+scikit-learn==1.3.0
+sentence-transformers==2.2.2
+transformers==4.35.0
+torch==2.1.0
+pymupdf==1.23.8
+python-docx==0.8.11
+wordcloud==1.9.2
+joblib==1.3.2
+pathlib
+logging
+sqlite3

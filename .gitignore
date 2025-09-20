@@ -1,0 +1,455 @@
+# ═══════════════════════════════════════════════════════════════
+# 🎯 AI-POWERED RESUME MATCHER - PROFESSIONAL .GITIGNORE
+# ═══════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🐍 PYTHON SPECIFIC
+# ══════════════════════════════════════════════════════════════════════════
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🚀 STREAMLIT SPECIFIC
+# ══════════════════════════════════════════════════════════════════════════
+
+# Streamlit cache files
+.streamlit/
+streamlit_cache/
+.streamlit_cache/
+
+# Streamlit secrets
+secrets.toml
+
+# Streamlit config
+config.toml
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🤖 MACHINE LEARNING & DATA SCIENCE
+# ══════════════════════════════════════════════════════════════════════════
+
+# Model files (IMPORTANT: Keep resume_model.joblib!)
+# *.joblib
+# *.pkl
+# *.pickle
+# *.h5
+# *.hdf5
+# *.pb
+
+# Trained models directory (except our main model)
+models/
+trained_models/
+checkpoints/
+saved_models/
+
+# Keep our main model
+!resume_model.joblib
+
+# Data files (large datasets)
+# *.csv (commented out - we need resume_dataset.csv)
+large_datasets/
+raw_data/
+processed_data/
+
+# Keep our main dataset
+!resume_dataset.csv
+
+# Temporary ML files
+*.tmp
+temp_*
+tmp_*
+
+# TensorFlow files
+*.tfrecords
+*.tfrec
+events.out.tfevents.*
+
+# PyTorch files
+*.pth
+*.pt
+
+# Scikit-learn cache
+sklearn_cache/
+
+# ══════════════════════════════════════════════════════════════════════════
+# 📄 DOCUMENT PROCESSING
+# ══════════════════════════════════════════════════════════════════════════
+
+# Temporary uploaded files
+uploads/
+temp_uploads/
+temporary_files/
+
+# Extracted text files
+extracted_text/
+temp_text/
+
+# PDF processing temporary files
+*.pdf.tmp
+temp_*.pdf
+
+# Document conversion temporary files
+*.docx.tmp
+temp_*.docx
+
+# ══════════════════════════════════════════════════════════════════════════
+# 💾 DATABASE & STORAGE
+# ══════════════════════════════════════════════════════════════════════════
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Database backups
+*.db.backup
+*.sql.backup
+
+# Database logs
+database.log
+db.log
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🔧 DEVELOPMENT & TOOLS
+# ══════════════════════════════════════════════════════════════════════════
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+
+# ══════════════════════════════════════════════════════════════════════════
+# 📊 LOGS & REPORTS
+# ══════════════════════════════════════════════════════════════════════════
+
+# Application logs
+*.log
+logs/
+log_files/
+
+# Error reports
+error_reports/
+crash_dumps/
+
+# Performance reports
+performance_reports/
+benchmark_results/
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🔐 SECURITY & CREDENTIALS
+# ══════════════════════════════════════════════════════════════════════════
+
+# API keys and secrets
+*.key
+*.pem
+*.p12
+.env.local
+.env.production
+.env.development
+
+# Configuration files with secrets
+config_secrets.py
+secret_config.json
+credentials.json
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🌐 WEB & DEPLOYMENT
+# ══════════════════════════════════════════════════════════════════════════
+
+# Node.js (if used for any frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Heroku
+Procfile.local
+
+# Vercel
+.vercel
+
+# ══════════════════════════════════════════════════════════════════════════
+# 📈 ANALYTICS & MONITORING
+# ══════════════════════════════════════════════════════════════════════════
+
+# Analytics data
+analytics_data/
+user_tracking/
+usage_stats/
+
+# Monitoring files
+monitoring/
+health_checks/
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🧪 TESTING & EXPERIMENTS
+# ══════════════════════════════════════════════════════════════════════════
+
+# Test data
+test_data/
+mock_data/
+sample_resumes/
+
+# Experiment results
+experiments/
+experiment_results/
+ab_test_data/
+
+# ══════════════════════════════════════════════════════════════════════════
+# 📦 BACKUP & ARCHIVE
+# ══════════════════════════════════════════════════════════════════════════
+
+# Backup files
+*.backup
+*.bak
+*.old
+*_backup.*
+
+# Archive files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Version backup
+*_v1.*
+*_v2.*
+*_old.*
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🎨 MEDIA & ASSETS
+# ══════════════════════════════════════════════════════════════════════════
+
+# Large media files
+*.mp4
+*.avi
+*.mov
+*.wmv
+
+# High-res images
+*.psd
+*.ai
+*.sketch
+
+# ══════════════════════════════════════════════════════════════════════════
+# 📋 PROJECT SPECIFIC EXCLUSIONS
+# ══════════════════════════════════════════════════════════════════════════
+
+# Resume files for testing (keep structure but ignore content)
+test_resumes/
+sample_resumes/
+demo_resumes/
+
+# Job descriptions for testing
+test_job_descriptions/
+sample_jds/
+
+# Output files
+analysis_results/
+export_files/
+generated_reports/
+
+# Cache directories
+cache/
+.cache/
+tmp_cache/
+
+# ══════════════════════════════════════════════════════════════════════════
+# 📝 DOCUMENTATION TEMP FILES
+# ══════════════════════════════════════════════════════════════════════════
+
+# Temporary documentation
+*.tmp.md
+draft_*.md
+temp_documentation/
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🚀 KEEP THESE IMPORTANT FILES (NEGATIVE PATTERNS)
+# ══════════════════════════════════════════════════════════════════════════
+
+# Force include important project files
+!app.py
+!streamlit_app.py
+!requirements.txt
+!README.md
+!resume_model.joblib
+!resume_dataset.csv
+!.gitignore
+!LICENSE
+
+# Force include configuration templates
+!config_template.py
+!example.env
+
+# ══════════════════════════════════════════════════════════════════════════
+# 📊 FINAL NOTES
+# ══════════════════════════════════════════════════════════════════════════
+
+# This .gitignore is designed for the AI-Powered Resume Matcher project
+# It excludes temporary files, sensitive data, and large binary files
+# while keeping essential project files and the trained ML model
+
+# Key files that WILL be tracked:
+# - app.py (main application)
+# - resume_model.joblib (trained ML model)
+# - resume_dataset.csv (training dataset)
+# - requirements.txt (dependencies)
+# - README.md (documentation)
+
+# Last updated: September 2025
+# Project: AI-Powered Resume Relevance System
