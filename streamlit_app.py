@@ -398,7 +398,7 @@ st.markdown("""
 
 # DATABASE SETUP AND USER MANAGEMENT
 class UserManager:
-    def __init__(self, db_path="users.db"):
+    def _init_(self, db_path="users.db"):
         self.db_path = db_path
         self.init_database()
     
@@ -736,7 +736,7 @@ def show_signup_page():
             signup_btn = st.form_submit_button("🚀 Create Account", use_container_width=True)
         
         with col2:
-            back_btn = st.form_submit_button("◀️ Back to Login", use_container_width=True)
+            back_btn = st.form_submit_button("◀ Back to Login", use_container_width=True)
     
     if signup_btn:
         # Validation
@@ -891,7 +891,7 @@ def get_ml_prediction(resume_text):
         elif confidence > 0.65:
             insights.append("✅ Good confidence ML prediction - Reliable categorization")
         else:
-            insights.append("⚠️ Moderate confidence - Consider manual review")
+            insights.append("⚠ Moderate confidence - Consider manual review")
         
         return {
             'category': prediction,
@@ -1078,7 +1078,7 @@ def show_dashboard():
                     st.metric("Characters", char_count)
                 
                 if word_count < 50:
-                    st.warning("⚠️ Job description seems brief. Add more details for better analysis.")
+                    st.warning("⚠ Job description seems brief. Add more details for better analysis.")
                 else:
                     st.success("✅ Good job description provided")
                 
@@ -1120,7 +1120,7 @@ def show_dashboard():
             with st.expander("📁 File Details"):
                 for i, file in enumerate(resume_files, 1):
                     file_size_kb = file.size / 1024
-                    st.write(f"{i}. **{file.name}** ({file_size_kb:.1f} KB)")
+                    st.write(f"{i}. *{file.name}* ({file_size_kb:.1f} KB)")
         
         # Analysis Button
         if resume_files and st.session_state.jd_text:
@@ -1208,11 +1208,11 @@ def show_dashboard():
                     
                     st.balloons()
                     st.success(f"""
-                    **🎉 Analysis Summary**
-                    - **Total files:** {len(resume_files)}
-                    - **Successful:** {successful_count}
-                    - **Processing time:** {total_time:.1f}s
-                    - **Average per file:** {total_time/len(resume_files):.1f}s
+                    *🎉 Analysis Summary*
+                    - *Total files:* {len(resume_files)}
+                    - *Successful:* {successful_count}
+                    - *Processing time:* {total_time:.1f}s
+                    - *Average per file:* {total_time/len(resume_files):.1f}s
                     """)
         
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1335,7 +1335,7 @@ def show_dashboard():
                 elif score >= 60:
                     score_icon = "✅"
                 elif score >= 40:
-                    score_icon = "⚠️"
+                    score_icon = "⚠"
                 else:
                     score_icon = "❌"
                 
@@ -1347,23 +1347,23 @@ def show_dashboard():
                     info_col1, info_col2, info_col3 = st.columns(3)
                     
                     with info_col1:
-                        st.markdown("**📋 Basic Information**")
-                        st.write(f"**File:** {result.get('filename', 'Unknown')}")
-                        st.write(f"**Candidate:** {result.get('candidate_name', 'Unknown')}")
-                        st.write(f"**File Size:** {result.get('file_size_kb', 0):.1f} KB")
+                        st.markdown("📋 Basic Information**")
+                        st.write(f"*File:* {result.get('filename', 'Unknown')}")
+                        st.write(f"*Candidate:* {result.get('candidate_name', 'Unknown')}")
+                        st.write(f"*File Size:* {result.get('file_size_kb', 0):.1f} KB")
                     
                     with info_col2:
-                        st.markdown("**📊 Performance Scores**")
-                        st.write(f"**Composite Score:** {score:.1f}%")
-                        st.write(f"**Similarity Score:** {result.get('similarity_score', 0):.1f}%")
-                        st.write(f"**Words:** {result.get('word_count', 0):,}")
+                        st.markdown("📊 Performance Scores**")
+                        st.write(f"*Composite Score:* {score:.1f}%")
+                        st.write(f"*Similarity Score:* {result.get('similarity_score', 0):.1f}%")
+                        st.write(f"*Words:* {result.get('word_count', 0):,}")
                         
                         # Visual score indicator
                         score_class = "score-excellent" if score >= 80 else "score-good" if score >= 60 else "score-fair" if score >= 40 else "score-poor"
                         st.markdown(f'<div class="score-badge {score_class}">{score:.1f}%</div>', unsafe_allow_html=True)
                     
                     with info_col3:
-                        st.markdown("**🤖 ML Prediction**")
+                        st.markdown("🤖 ML Prediction**")
                         
                         if result.get('ml_prediction_successful', False):
                             st.markdown(f"""
@@ -1387,7 +1387,7 @@ def show_dashboard():
                         
                         if skills_data:
                             for category, skills in skills_data.items():
-                                st.markdown(f"**{category}:**")
+                                st.markdown(f"{category}:")
                                 
                                 skills_html = ""
                                 for skill_name, skill_info in skills.items():
@@ -1408,7 +1408,7 @@ def show_dashboard():
                             insights = result.get('ml_insights', [])
                             if insights:
                                 for i, insight in enumerate(insights, 1):
-                                    st.markdown(f"**{i}.** {insight}")
+                                    st.markdown(f"{i}.** {insight}")
                             
                             # Top ML Predictions
                             top_predictions = result.get('top_ml_predictions', [])
@@ -1420,7 +1420,7 @@ def show_dashboard():
                                     percentage = pred['percentage']
                                     probability = pred['probability']
                                     
-                                    st.write(f"**{i}. {category}** - {percentage}")
+                                    st.write(f"{i}. {category}** - {percentage}")
                                     st.progress(probability)
                         else:
                             st.info("ML insights not available - prediction failed")
@@ -1442,7 +1442,7 @@ def show_dashboard():
                         # Resume Preview
                         preview_text = result.get('resume_preview', '')
                         if preview_text:
-                            st.markdown("**Resume Content Preview:**")
+                            st.markdown("*Resume Content Preview:*")
                             st.text_area(
                                 "Content Preview:",
                                 preview_text,
@@ -1487,13 +1487,13 @@ def show_dashboard():
                 if st.button("📋 Export Executive Summary", use_container_width=True):
                     summary = f"""# Executive Summary - Resume Analysis Report
 
-**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-**Analyzed by:** {user['full_name']} ({user['role'].title()})
+*Generated:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+*Analyzed by:* {user['full_name']} ({user['role'].title()})
 
 ## Analysis Overview
-- **Total Candidates:** {len(st.session_state.results)}
-- **Average Score:** {np.mean(scores):.1f}%
-- **ML Model Status:** {'Active' if ml_model else 'Not Available'}
+- *Total Candidates:* {len(st.session_state.results)}
+- *Average Score:* {np.mean(scores):.1f}%
+- *ML Model Status:* {'Active' if ml_model else 'Not Available'}
 
 ## Top 5 Candidates
 
@@ -1501,9 +1501,9 @@ def show_dashboard():
                     
                     for i, result in enumerate(st.session_state.results[:5], 1):
                         summary += f"""### {i}. {result.get('candidate_name', 'Unknown')} - {result.get('composite_score', 0):.1f}%
-- **ML Category:** {result.get('ml_category', 'Unknown')}
-- **ML Confidence:** {result.get('ml_confidence_percentage', '0%')}
-- **Recommendation:** {result.get('hiring_recommendation', 'Unknown')}
+- *ML Category:* {result.get('ml_category', 'Unknown')}
+- *ML Confidence:* {result.get('ml_confidence_percentage', '0%')}
+- *Recommendation:* {result.get('hiring_recommendation', 'Unknown')}
 
 """
                     
@@ -1538,9 +1538,9 @@ with st.sidebar:
         
         st.markdown("### 👤 User Account")
         st.markdown(f"""
-        **Logged in as:** {user['full_name']}  
-        **Role:** {user['role'].title()}  
-        **Email:** {user['email']}
+        *Logged in as:* {user['full_name']}  
+        *Role:* {user['role'].title()}  
+        *Email:* {user['email']}
         """)
         
         if st.button("🔓 Logout", use_container_width=True, type="secondary"):
@@ -1562,8 +1562,8 @@ with st.sidebar:
         if ml_model:
             st.markdown('<div class="status-badge status-active">✅ ML System Active</div>', unsafe_allow_html=True)
             categories = ml_model.get('categories', [])
-            st.info(f"**Categories Available:** {len(categories)}")
-            st.info(f"**Predictions:** Enabled")
+            st.info(f"*Categories Available:* {len(categories)}")
+            st.info(f"*Predictions:* Enabled")
             
             with st.expander("📋 Available Categories"):
                 for i, cat in enumerate(categories[:12], 1):
@@ -1573,7 +1573,7 @@ with st.sidebar:
         
         else:
             st.markdown('<div class="status-badge status-inactive">❌ Basic Mode</div>', unsafe_allow_html=True)
-            st.warning("**ML predictions unavailable**")
+            st.warning("*ML predictions unavailable*")
             st.info("Place 'resume_model.joblib' in project folder")
             
             if st.button("🔄 Retry Model Loading", use_container_width=True):
@@ -1599,13 +1599,13 @@ with st.sidebar:
         minutes, seconds = divmod(remainder, 60)
         st.metric("Session Time", f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}")
         
-        st.markdown("### 🛠️ Quick Actions")
+        st.markdown("### 🛠 Quick Actions")
         
         if st.button("🔄 Refresh System", use_container_width=True):
             st.cache_resource.clear()
             st.rerun()
         
-        if st.button("🗑️ Clear Analysis Data", use_container_width=True):
+        if st.button("🗑 Clear Analysis Data", use_container_width=True):
             st.session_state.jd_text = ""
             st.session_state.results = []
             st.session_state.processing_stats = {

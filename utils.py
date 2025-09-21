@@ -1,782 +1,845 @@
-"""
-Core utilities for Resume Relevance System
-Handles text extraction, preprocessing, similarity calculations, and ML operations
-"""
-
-import os
-import re
-import logging
-import numpy as np
+import streamlit as st
 import pandas as pd
-from typing import List, Dict, Tuple, Optional, Union
-import sqlite3
-from datetime import datetime
-import joblib
-import pickle
-import json
-
-# Document processing
-import pymupdf  # PyMuPDF for PDF
-from docx import Document  # python-docx for DOCX
-
-# NLP and ML
+import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score, classification_report
+import re
+from datetime import datetime
+import sqlite3
+import hashlib
+import joblib
+import os
+import plotly.express as px
+import plotly.graph_objects as go
+from typing import Dict, List, Any, Optional, Tuple
+import random
 
-# Optional: Sentence Transformers for semantic similarity
+# PDF processing
 try:
-    from sentence_transformers import SentenceTransformer
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
+    import PyPDF2
+    PDF_AVAILABLE = True
 except ImportError:
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
+    PDF_AVAILABLE = False
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Google Gemini
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
 
-class TextExtractor:
-    """Professional text extraction from multiple file formats"""
+class UserManager:
+    """Handles user authentication and database operations"""
     
-    @staticmethod
-    def extract_from_pdf(file_path: str) -> str:
-        """Extract text from PDF using PyMuPDF"""
-        try:
-            doc = pymupdf.open(file_path)
-            text = ""
-            for page in doc:
-                text += page.get_text()
-            doc.close()
-            return TextExtractor._clean_text(text)
-        except Exception as e:
-            logger.error(f"PDF extraction failed: {e}")
-            return ""
+    def __init__(self, db_path: str = "users.db"):
+        self.db_path = db_path
+        self.init_database()
     
-    @staticmethod
-    def extract_from_docx(file_path: str) -> str:
-        """Extract text from DOCX using python-docx"""
-        try:
-            doc = Document(file_path)
-            text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
-            return TextExtractor._clean_text(text)
-        except Exception as e:
-            logger.error(f"DOCX extraction failed: {e}")
-            return ""
+    def init_database(self):
+        """Initialize the SQLite database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Users table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                full_name TEXT NOT NULL,
+                role TEXT DEFAULT 'user',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP,
+                is_active BOOLEAN DEFAULT TRUE
+            )
+        ''')
+        
+        # User sessions table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                session_data TEXT,
+                analysis_count INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
+        
+        # Chat history table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS chat_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                message TEXT,
+                response TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
+        
+        # Create demo users
+        demo_users = [
+            ("admin", "admin@resumeanalytics.com", "admin123", "System Administrator", "admin"),
+            ("hr_manager", "hr@company.com", "hr2024", "HR Manager", "recruiter"),
+            ("recruiter", "recruiter@company.com", "recruit123", "Senior Recruiter", "recruiter"),
+            ("demo_user", "demo@company.com", "demo123", "Demo User", "recruiter"),
+            ("student", "student@university.edu", "student123", "John Student", "student"),
+            ("jane_student", "jane@university.edu", "jane123", "Jane Doe", "student")
+        ]
+        
+        for username, email, password, full_name, role in demo_users:
+            try:
+                password_hash = self.hash_password(password)
+                cursor.execute('''
+                    INSERT OR IGNORE INTO users (username, email, password_hash, full_name, role)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (username, email, password_hash, full_name, role))
+            except Exception:
+                pass
+        
+        conn.commit()
+        conn.close()
     
-    @staticmethod
-    def extract_from_txt(file_path: str) -> str:
-        """Extract text from TXT file"""
-        try:
-            with open(file_path, 'r', encoding='utf-8') as file:
-                text = file.read()
-            return TextExtractor._clean_text(text)
-        except Exception as e:
-            logger.error(f"TXT extraction failed: {e}")
-            return ""
+    def hash_password(self, password: str) -> str:
+        """Hash password using SHA-256"""
+        return hashlib.sha256(password.encode()).hexdigest()
     
-    @staticmethod
-    def extract_from_uploaded_file(uploaded_file) -> str:
-        """Extract text from Streamlit uploaded file"""
+    def verify_password(self, password: str, password_hash: str) -> bool:
+        """Verify password against hash"""
+        return self.hash_password(password) == password_hash
+    
+    def create_user(self, username: str, email: str, password: str, full_name: str, role: str = "user") -> Tuple[bool, str]:
+        """Create new user account"""
         try:
-            if uploaded_file.type == "application/pdf":
-                # Save temporarily and extract
-                temp_path = f"temp_{uploaded_file.name}"
-                with open(temp_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                text = TextExtractor.extract_from_pdf(temp_path)
-                os.remove(temp_path)
-                return text
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
             
-            elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-                temp_path = f"temp_{uploaded_file.name}"
-                with open(temp_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                text = TextExtractor.extract_from_docx(temp_path)
-                os.remove(temp_path)
-                return text
+            password_hash = self.hash_password(password)
             
-            elif uploaded_file.type == "text/plain":
-                return str(uploaded_file.read(), "utf-8")
+            cursor.execute('''
+                INSERT INTO users (username, email, password_hash, full_name, role)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (username, email, password_hash, full_name, role))
             
+            conn.commit()
+            conn.close()
+            return True, "Account created successfully"
+        
+        except sqlite3.IntegrityError as e:
+            if "username" in str(e):
+                return False, "Username already exists"
+            elif "email" in str(e):
+                return False, "Email already exists"
             else:
-                logger.warning(f"Unsupported file type: {uploaded_file.type}")
-                return ""
-                
+                return False, "Account creation failed"
         except Exception as e:
-            logger.error(f"File extraction failed: {e}")
-            return ""
+            return False, f"Database error: {str(e)}"
     
-    @staticmethod
-    def _clean_text(text: str) -> str:
-        """Clean and normalize extracted text"""
-        if not text:
+    def authenticate_user(self, username: str, password: str) -> Tuple[bool, Any]:
+        """Authenticate user login"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT id, username, email, password_hash, full_name, role, is_active
+                FROM users WHERE username = ? OR email = ?
+            ''', (username, username))
+            
+            user = cursor.fetchone()
+            
+            if user and user[6] and self.verify_password(password, user[3]):
+                # Update last login
+                cursor.execute('''
+                    UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?
+                ''', (user[0],))
+                conn.commit()
+                
+                user_data = {
+                    'id': user[0],
+                    'username': user[1],
+                    'email': user[2],
+                    'full_name': user[4],
+                    'role': user[5]
+                }
+                
+                conn.close()
+                return True, user_data
+            
+            conn.close()
+            return False, "Invalid username or password"
+        
+        except Exception as e:
+            return False, f"Authentication error: {str(e)}"
+    
+    def save_chat_message(self, user_id: int, message: str, response: str) -> bool:
+        """Save chat message to database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO chat_history (user_id, message, response)
+                VALUES (?, ?, ?)
+            ''', (user_id, message, response))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception:
+            return False
+    
+    def get_user_stats(self, user_id: int) -> Dict[str, int]:
+        """Get user statistics"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Session stats
+            cursor.execute('''
+                SELECT COUNT(*) as session_count, 
+                       COALESCE(SUM(analysis_count), 0) as total_analysis
+                FROM user_sessions WHERE user_id = ?
+            ''', (user_id,))
+            
+            stats = cursor.fetchone()
+            
+            # Chat stats
+            cursor.execute('''
+                SELECT COUNT(*) as chat_count
+                FROM chat_history WHERE user_id = ?
+            ''', (user_id,))
+            
+            chat_stats = cursor.fetchone()
+            conn.close()
+            
+            return {
+                'session_count': stats[0] if stats else 0,
+                'total_analysis': stats[1] if stats else 0,
+                'chat_count': chat_stats[0] if chat_stats else 0
+            }
+        except Exception:
+            return {'session_count': 0, 'total_analysis': 0, 'chat_count': 0}
+
+class ResumeAnalyzer:
+    """Advanced resume analysis with scoring"""
+    
+    def __init__(self):
+        self.skill_categories = {
+            'Programming Languages': [
+                'Python', 'Java', 'JavaScript', 'C++', 'C#', 'PHP', 'Ruby', 'Go', 'Swift', 'Kotlin',
+                'TypeScript', 'Scala', 'R', 'MATLAB', 'Rust', 'Dart', 'Perl'
+            ],
+            'Web Technologies': [
+                'HTML', 'CSS', 'React', 'Angular', 'Vue.js', 'Node.js', 'Django', 'Flask', 'Spring Boot',
+                'Express.js', 'Bootstrap', 'jQuery', 'Sass', 'WordPress', 'Laravel', 'Rails'
+            ],
+            'Databases': [
+                'MySQL', 'PostgreSQL', 'MongoDB', 'Redis', 'Oracle', 'SQLite', 'Cassandra',
+                'SQL Server', 'DynamoDB', 'Neo4j', 'Firebase', 'MariaDB'
+            ],
+            'Cloud & DevOps': [
+                'AWS', 'Azure', 'Google Cloud', 'Docker', 'Kubernetes', 'Terraform',
+                'Jenkins', 'GitLab CI', 'GitHub Actions', 'Heroku', 'Vercel', 'Ansible'
+            ],
+            'Data Science': [
+                'Machine Learning', 'Deep Learning', 'TensorFlow', 'PyTorch', 'Pandas', 'NumPy',
+                'Scikit-learn', 'Matplotlib', 'Seaborn', 'Jupyter', 'Tableau', 'Power BI'
+            ],
+            'Soft Skills': [
+                'Leadership', 'Communication', 'Problem Solving', 'Teamwork', 'Project Management',
+                'Critical Thinking', 'Adaptability', 'Time Management', 'Creativity', 'Public Speaking'
+            ]
+        }
+        
+        self.resume_tips = [
+            "Use strong action verbs like 'achieved', 'improved', 'led', 'developed'",
+            "Quantify your achievements with specific numbers and percentages",
+            "Tailor your resume to match job description keywords",
+            "Keep formatting clean and consistent throughout",
+            "Use a professional email address and contact information",
+            "Include a compelling summary or objective statement",
+            "List experience in reverse chronological order",
+            "Use bullet points for easy readability",
+            "Keep resume to 1-2 pages maximum",
+            "Proofread carefully for grammar and spelling errors"
+        ]
+    
+    def analyze_resume(self, resume_text: str, job_description: str = "") -> Dict[str, Any]:
+        """Comprehensive resume analysis with scoring"""
+        if not resume_text:
+            return {
+                'score': 0,
+                'strengths': [],
+                'improvements': [],
+                'missing_skills': [],
+                'recommendations': []
+            }
+        
+        analysis = {
+            'score': 0,
+            'strengths': [],
+            'improvements': [],
+            'missing_skills': [],
+            'recommendations': []
+        }
+        
+        resume_lower = resume_text.lower()
+        word_count = len(resume_text.split())
+        
+        # Scoring criteria (100 points total)
+        score = 0
+        
+        # 1. Length check (15 points)
+        if 200 <= word_count <= 1000:
+            score += 15
+            analysis['strengths'].append(f"Appropriate resume length ({word_count} words)")
+        elif word_count < 200:
+            analysis['improvements'].append("Resume is too brief - add more details about experience")
+        else:
+            analysis['improvements'].append("Resume is too long - condense to 1-2 pages")
+        
+        # 2. Essential sections (25 points)
+        essential_sections = {
+            'contact': ('@' in resume_text or 'phone' in resume_lower or 'email' in resume_lower),
+            'experience': ('experience' in resume_lower or 'work' in resume_lower),
+            'education': ('education' in resume_lower or 'degree' in resume_lower),
+            'skills': ('skills' in resume_lower or 'technical' in resume_lower),
+            'summary': ('summary' in resume_lower or 'objective' in resume_lower)
+        }
+        
+        sections_found = sum(essential_sections.values())
+        score += (sections_found / 5) * 25
+        
+        if sections_found >= 4:
+            analysis['strengths'].append("Contains most essential resume sections")
+        else:
+            missing = [s for s, found in essential_sections.items() if not found]
+            analysis['improvements'].append(f"Missing sections: {', '.join(missing[:2])}")
+        
+        # 3. Action verbs (20 points)
+        action_verbs = [
+            'achieved', 'improved', 'increased', 'reduced', 'developed', 'led', 'managed', 'created',
+            'implemented', 'designed', 'built', 'organized', 'coordinated', 'delivered', 'optimized'
+        ]
+        found_verbs = [verb for verb in action_verbs if verb in resume_lower]
+        verb_score = min(20, len(found_verbs) * 2.5)
+        score += verb_score
+        
+        if len(found_verbs) >= 5:
+            analysis['strengths'].append("Uses strong action verbs effectively")
+        else:
+            analysis['improvements'].append("Add more action verbs like 'achieved', 'improved', 'led'")
+        
+        # 4. Quantification (20 points)
+        quantifiers = re.findall(r'\d+%|\$\d+|\d+\+|increase|decrease|\d+ years?', resume_text)
+        if len(quantifiers) >= 3:
+            score += 20
+            analysis['strengths'].append("Includes quantified achievements")
+        else:
+            analysis['improvements'].append("Add quantified results (numbers, percentages)")
+        
+        # 5. Skills presence (20 points)
+        skills_found = 0
+        for category, skills in self.skill_categories.items():
+            for skill in skills:
+                if skill.lower() in resume_lower:
+                    skills_found += 1
+        
+        skill_score = min(20, skills_found)
+        score += skill_score
+        
+        if skills_found >= 8:
+            analysis['strengths'].append("Contains relevant technical skills")
+        else:
+            analysis['improvements'].append("Include more relevant skills")
+        
+        # Job description matching
+        if job_description:
+            jd_lower = job_description.lower()
+            jd_words = set(jd_lower.split())
+            resume_words = set(resume_lower.split())
+            overlap = len(jd_words & resume_words)
+            
+            if overlap > 30:
+                analysis['strengths'].append("Excellent keyword alignment with job")
+            elif overlap > 15:
+                analysis['strengths'].append("Good keyword overlap with job")
+            else:
+                analysis['improvements'].append("Better align content with job requirements")
+            
+            # Find missing skills
+            for category, skills in self.skill_categories.items():
+                for skill in skills:
+                    if skill.lower() in jd_lower and skill.lower() not in resume_lower:
+                        analysis['missing_skills'].append(skill)
+        
+        analysis['score'] = min(score, 100)
+        
+        # Generate recommendations
+        if analysis['score'] >= 80:
+            analysis['recommendations'] = [
+                "Excellent resume! Minor tweaks for specific applications",
+                "Continue tailoring keywords for each position"
+            ]
+        elif analysis['score'] >= 60:
+            analysis['recommendations'] = [
+                "Good foundation - add more quantified achievements",
+                "Consider adding more relevant skills and certifications"
+            ]
+        else:
+            analysis['recommendations'] = [
+                "Focus on essential sections and structure",
+                "Add quantified achievements and action verbs",
+                "Improve professional formatting"
+            ]
+        
+        return analysis
+
+class SmartChatbot:
+    """AI-powered career chatbot"""
+    
+    def __init__(self):
+        self.setup_ai()
+        self.knowledge_base = {
+            'career_advice': {
+                'interview_tips': [
+                    "Research the company thoroughly before the interview",
+                    "Prepare specific examples using the STAR method",
+                    "Practice common interview questions out loud",
+                    "Prepare thoughtful questions about the role and company",
+                    "Dress professionally and arrive 10-15 minutes early",
+                    "Follow up with a thank-you email within 24 hours"
+                ],
+                'job_search': [
+                    "Use multiple job search channels (LinkedIn, company websites, referrals)",
+                    "Customize your resume and cover letter for each application",
+                    "Network actively within your industry",
+                    "Follow up on applications professionally",
+                    "Keep track of applications in a spreadsheet",
+                    "Consider working with recruiters in your field"
+                ],
+                'skill_development': [
+                    "Identify in-demand skills in your field",
+                    "Take online courses from reputable platforms",
+                    "Build a portfolio of projects to showcase skills",
+                    "Contribute to open-source projects",
+                    "Attend industry conferences and meetups",
+                    "Find a mentor in your desired career path"
+                ]
+            }
+        }
+    
+    def setup_ai(self):
+        """Setup AI capabilities"""
+        self.ai_status = "Basic"
+        
+        # Try Google Gemini
+        if GEMINI_AVAILABLE:
+            api_key = os.getenv('GOOGLE_API_KEY')
+            if api_key:
+                try:
+                    genai.configure(api_key=api_key)
+                    self.gemini_model = genai.GenerativeModel('gemini-pro')
+                    self.ai_status = "Enhanced"
+                except Exception:
+                    pass
+    
+    def get_response(self, message: str, resume_text: str = "", job_description: str = "") -> str:
+        """Generate chatbot response"""
+        if self.ai_status == "Enhanced":
+            return self.gemini_response(message, resume_text, job_description)
+        else:
+            return self.rule_based_response(message, resume_text, job_description)
+    
+    def gemini_response(self, message: str, resume_text: str, job_description: str) -> str:
+        """Google Gemini AI response"""
+        try:
+            context = ""
+            if resume_text:
+                context += f"\nUser's Resume (first 1000 chars): {resume_text[:1000]}"
+            if job_description:
+                context += f"\nTarget Job Description: {job_description[:500]}"
+            
+            prompt = f"""You are an expert career counselor. A student/job seeker asks: "{message}"
+
+{context}
+
+Provide helpful, specific, and actionable career advice. Be encouraging but realistic. 
+Keep response under 400 words and use clear formatting with bullet points when appropriate."""
+            
+            response = self.gemini_model.generate_content(prompt)
+            return response.text
+        except Exception:
+            return self.rule_based_response(message, resume_text, job_description)
+    
+    def rule_based_response(self, message: str, resume_text: str, job_description: str) -> str:
+        """Rule-based intelligent responses"""
+        message_lower = message.lower()
+        
+        # Resume analysis
+        if any(keyword in message_lower for keyword in ['analyze', 'review', 'resume', 'feedback']):
+            if not resume_text:
+                return """📄 **Please upload your resume first!**
+
+I'll provide comprehensive analysis including:
+• Content quality assessment
+• Structure and formatting review
+• Skills alignment check
+• Specific improvement recommendations
+• Professional scoring (0-100)
+
+Upload your resume above to get started! 🚀"""
+            
+            analyzer = ResumeAnalyzer()
+            analysis = analyzer.analyze_resume(resume_text, job_description)
+            
+            response = f"## 📊 **Resume Analysis Results**\n\n"
+            response += f"**Overall Score: {analysis['score']}/100**\n\n"
+            
+            if analysis['score'] >= 80:
+                response += "🏆 **Excellent Resume!** You're well-prepared for applications.\n\n"
+            elif analysis['score'] >= 60:
+                response += "✅ **Good Resume** with solid foundation. Some improvements will enhance it.\n\n"
+            else:
+                response += "🔧 **Room for Improvement** - Focus on key areas below.\n\n"
+            
+            if analysis['strengths']:
+                response += "### ✅ **Strengths:**\n"
+                for strength in analysis['strengths'][:4]:
+                    response += f"• {strength}\n"
+                response += "\n"
+            
+            if analysis['improvements']:
+                response += "### 🔧 **Improvements:**\n"
+                for improvement in analysis['improvements'][:4]:
+                    response += f"• {improvement}\n"
+                response += "\n"
+            
+            return response
+        
+        # Job suitability
+        elif any(keyword in message_lower for keyword in ['suitable', 'fit', 'match', 'job']):
+            if not resume_text or not job_description:
+                return """🎯 **Job Suitability Analysis**
+
+I need both your resume and the job description to assess compatibility.
+
+**What I'll analyze:**
+• Keyword matching between resume and job requirements
+• Skills alignment and gaps
+• Experience relevance
+• Overall competitiveness
+• Specific recommendations to improve your candidacy
+
+Please upload your resume and paste the job description! 📈"""
+            
+            # Calculate basic compatibility
+            resume_words = set(resume_text.lower().split())
+            jd_words = set(job_description.lower().split())
+            overlap = len(resume_words & jd_words)
+            similarity = (overlap / len(jd_words)) * 100 if jd_words else 0
+            
+            if similarity > 35:
+                match_level = "🏆 **Excellent Match!**"
+                advice = "You're very well-suited. Apply with confidence and highlight your relevant experience!"
+            elif similarity > 25:
+                match_level = "✅ **Good Match**"
+                advice = "You have strong qualifications. Tailor your application to emphasize relevant skills!"
+            elif similarity > 15:
+                match_level = "⚠️ **Moderate Match**"
+                advice = "You have some relevant qualifications. Focus on transferable skills and growth potential!"
+            else:
+                match_level = "🔧 **Limited Match**"
+                advice = "This role might be challenging. Consider developing key skills or targeting more aligned positions!"
+            
+            return f"""## 🎯 **Job Compatibility Analysis**
+
+{match_level}
+
+**Keyword Similarity:** {similarity:.0f}%
+
+**Recommendation:** {advice}
+
+**Next Steps:**
+• Review job requirements carefully
+• Highlight matching experience prominently
+• Address any skill gaps in your cover letter
+• Consider reaching out to employees at the company"""
+        
+        # Skill development
+        elif any(keyword in message_lower for keyword in ['skill', 'learn', 'develop', 'study']):
+            recommendations = []
+            
+            if any(term in message_lower for term in ['software', 'programming', 'developer']):
+                recommendations = [
+                    "🐍 **Python** - Versatile for web development, data science, automation",
+                    "⚛️ **React/JavaScript** - Essential for modern web development",
+                    "☁️ **Cloud Platforms (AWS/Azure)** - High demand across industries",
+                    "🔧 **Git/Version Control** - Fundamental for any development work"
+                ]
+            elif any(term in message_lower for term in ['data', 'analytics', 'science']):
+                recommendations = [
+                    "📊 **Python/R** - Core languages for data analysis",
+                    "📈 **SQL** - Essential for working with databases",
+                    "🤖 **Machine Learning** - Growing field with excellent prospects",
+                    "📊 **Tableau/Power BI** - Popular data visualization tools"
+                ]
+            else:
+                recommendations = [
+                    "💼 **Communication** - Critical for any career advancement",
+                    "📊 **Data Analysis** - Valuable across all industries",
+                    "👥 **Project Management** - Useful for leadership roles",
+                    "💻 **Digital Marketing** - High demand in modern business"
+                ]
+            
+            response = "🚀 **Skill Development Recommendations**\n\n"
+            for rec in recommendations:
+                response += f"• {rec}\n"
+            
+            response += f"""
+
+**Learning Strategy:**
+1. **Focus on 1-2 skills** at a time for effective learning
+2. **Practice consistently** - even 30 minutes daily helps
+3. **Build projects** to apply what you learn
+4. **Get certified** to validate your skills
+5. **Join communities** to learn from others
+
+**Recommended Platforms:**
+• **Coursera/edX** - University-quality courses
+• **Udemy** - Practical, hands-on training  
+• **YouTube** - Free tutorials and explanations
+• **LinkedIn Learning** - Professional development"""
+            
+            return response
+        
+        # Interview advice
+        elif any(keyword in message_lower for keyword in ['interview', 'interviewing']):
+            tips = random.sample(self.knowledge_base['career_advice']['interview_tips'], 4)
+            
+            response = "🎯 **Interview Success Tips**\n\n"
+            for tip in tips:
+                response += f"• {tip}\n"
+            
+            response += """
+
+**Common Interview Questions to Prepare:**
+• "Tell me about yourself"
+• "Why are you interested in this role?"
+• "What are your greatest strengths/weaknesses?"
+• "Describe a challenging situation and how you handled it"
+• "Where do you see yourself in 5 years?"
+
+**Remember:** Interviews are conversations, not interrogations. Be yourself and let your personality shine! 🌟"""
+            
+            return response
+        
+        # General career advice
+        else:
+            return """👋 **Hello! I'm your AI Career Assistant!**
+
+I can help you with:
+
+🔍 **Resume Analysis** - Upload your resume for detailed feedback and scoring
+📝 **Resume Optimization** - Specific tips to improve your resume
+🎯 **Job Matching** - Check how well you fit specific positions  
+📚 **Skill Development** - Recommendations for career growth
+💼 **Career Strategy** - Planning and professional development
+🎤 **Interview Preparation** - Tips and common questions
+
+**What would you like help with today?**
+
+*Examples:*
+• "Analyze my resume"
+• "Am I suitable for this job?"
+• "What skills should I learn?"
+• "Give me interview tips"
+
+Ready to boost your career? 🚀"""
+
+# Utility Functions
+def extract_text_from_file(uploaded_file) -> str:
+    """Extract text from uploaded file"""
+    try:
+        file_size_mb = uploaded_file.size / (1024 * 1024)
+        if file_size_mb > 10:
+            st.error(f"File too large: {file_size_mb:.1f}MB (max 10MB)")
             return ""
         
-        # Remove excessive whitespace
-        text = re.sub(r'\s+', ' ', text)
+        if uploaded_file.type == "text/plain":
+            text = str(uploaded_file.read(), "utf-8")
+        elif uploaded_file.type == "application/pdf" and PDF_AVAILABLE:
+            pdf_reader = PyPDF2.PdfReader(uploaded_file)
+            text_parts = []
+            for page in pdf_reader.pages:
+                page_text = page.extract_text()
+                if page_text.strip():
+                    text_parts.append(page_text)
+            text = '\n'.join(text_parts)
+        else:
+            text = str(uploaded_file.read(), "utf-8", errors="ignore")
         
-        # Remove special characters but keep important punctuation
-        text = re.sub(r'[^\w\s\.\-\+\#\(\)\/\@\&]', ' ', text)
+        if not text or len(text.strip()) < 10:
+            st.error("Extracted text is too short or empty")
+            return ""
         
-        # Remove multiple dots
-        text = re.sub(r'\.{2,}', '.', text)
-        
-        # Clean up spaces
         text = re.sub(r'\s+', ' ', text).strip()
-        
         return text
+        
+    except Exception as e:
+        st.error(f"❌ Error processing {uploaded_file.name}: {e}")
+        return ""
 
-class TextPreprocessor:
-    """Advanced text preprocessing for NLP tasks"""
-    
-    def __init__(self):
-        self.stop_words = self._load_stop_words()
+def calculate_similarity(text1: str, text2: str) -> float:
+    """Calculate similarity between two texts"""
+    try:
+        if not text1 or not text2:
+            return 0.0
         
-    def _load_stop_words(self) -> set:
-        """Load common English stop words"""
-        return {
-            'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
-            'has', 'he', 'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the',
-            'to', 'was', 'will', 'with', 'would', 'have', 'had', 'been', 'this',
-            'these', 'they', 'their', 'there', 'where', 'when', 'what', 'who'
-        }
-    
-    def preprocess(self, text: str) -> str:
-        """Comprehensive text preprocessing"""
-        if not text:
-            return ""
+        text1_clean = re.sub(r'[^\w\s]', ' ', text1.lower())
+        text2_clean = re.sub(r'[^\w\s]', ' ', text2.lower())
         
-        # Convert to lowercase
-        text = text.lower()
-        
-        # Normalize common terms
-        text = self._normalize_tech_terms(text)
-        
-        # Remove stop words (optional for technical resumes)
-        # words = [word for word in text.split() if word not in self.stop_words]
-        # text = ' '.join(words)
-        
-        return text
-    
-    def _normalize_tech_terms(self, text: str) -> str:
-        """Normalize technical terms and abbreviations"""
-        normalizations = {
-            'javascript': 'javascript js',
-            'js': 'javascript',
-            'python': 'python py',
-            'artificial intelligence': 'ai artificial intelligence',
-            'machine learning': 'ml machine learning',
-            'c++': 'cpp c++',
-            'c#': 'csharp c#',
-            'node.js': 'nodejs node.js',
-            'react.js': 'reactjs react',
-            'vue.js': 'vuejs vue'
-        }
-        
-        for original, replacement in normalizations.items():
-            text = text.replace(original, replacement)
-        
-        return text
-    
-    def extract_skills(self, text: str) -> List[str]:
-        """Extract technical skills from text"""
-        skills_patterns = {
-            # Programming Languages
-            'python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'php', 'ruby',
-            'go', 'rust', 'kotlin', 'swift', 'scala', 'r', 'matlab', 'sql',
-            
-            # Web Technologies
-            'html', 'css', 'react', 'angular', 'vue', 'nodejs', 'express', 'django',
-            'flask', 'spring', 'laravel', 'bootstrap', 'jquery',
-            
-            # Databases
-            'mysql', 'postgresql', 'mongodb', 'redis', 'oracle', 'sqlite',
-            'elasticsearch', 'cassandra', 'dynamodb',
-            
-            # Cloud & DevOps
-            'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'git',
-            'terraform', 'ansible', 'linux',
-            
-            # Data Science & AI
-            'machine learning', 'deep learning', 'tensorflow', 'pytorch', 'keras',
-            'pandas', 'numpy', 'scikit-learn', 'matplotlib', 'jupyter',
-            
-            # Other Technologies
-            'api', 'rest', 'graphql', 'microservices', 'agile', 'scrum'
-        }
-        
-        found_skills = []
-        text_lower = text.lower()
-        
-        for skill in skills_patterns:
-            if skill in text_lower:
-                found_skills.append(skill)
-        
-        return list(set(found_skills))
-
-class SimilarityCalculator:
-    """Calculate similarity between texts using multiple methods"""
-    
-    def __init__(self):
-        self.tfidf_vectorizer = None
-        self.sentence_model = None
-        self._initialize_models()
-    
-    def _initialize_models(self):
-        """Initialize similarity calculation models"""
-        # TF-IDF Vectorizer
-        self.tfidf_vectorizer = TfidfVectorizer(
-            max_features=5000,
+        vectorizer = TfidfVectorizer(
             stop_words='english',
+            max_features=2000,
             ngram_range=(1, 2),
             min_df=1,
             max_df=0.95
         )
         
-        # Sentence Transformers (if available)
-        if SENTENCE_TRANSFORMERS_AVAILABLE:
-            try:
-                self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
-                logger.info("✅ Sentence Transformers model loaded")
-            except Exception as e:
-                logger.warning(f"Failed to load Sentence Transformers: {e}")
-                self.sentence_model = None
-        else:
-            logger.info("Sentence Transformers not available - using TF-IDF only")
-    
-    def calculate_tfidf_similarity(self, text1: str, text2: str) -> float:
-        """Calculate TF-IDF cosine similarity"""
-        try:
-            if not text1 or not text2:
-                return 0.0
-            
-            # Fit and transform texts
-            tfidf_matrix = self.tfidf_vectorizer.fit_transform([text1, text2])
-            
-            # Calculate cosine similarity
-            similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
-            
-            return float(similarity)
+        tfidf_matrix = vectorizer.fit_transform([text1_clean, text2_clean])
+        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
         
-        except Exception as e:
-            logger.error(f"TF-IDF similarity calculation failed: {e}")
-            return 0.0
-    
-    def calculate_semantic_similarity(self, text1: str, text2: str) -> float:
-        """Calculate semantic similarity using Sentence Transformers"""
-        if not self.sentence_model:
-            return self.calculate_tfidf_similarity(text1, text2)
+        return float(similarity) * 100
         
-        try:
-            # Generate embeddings
-            embeddings = self.sentence_model.encode([text1, text2])
-            
-            # Calculate cosine similarity
-            similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
-            
-            return float(similarity)
-        
-        except Exception as e:
-            logger.error(f"Semantic similarity calculation failed: {e}")
-            return self.calculate_tfidf_similarity(text1, text2)
-    
-    def calculate_keyword_overlap(self, text1: str, text2: str) -> float:
-        """Calculate simple keyword overlap similarity"""
-        try:
-            words1 = set(text1.lower().split())
-            words2 = set(text2.lower().split())
-            
-            if not words1 or not words2:
-                return 0.0
-            
-            intersection = len(words1.intersection(words2))
-            union = len(words1.union(words2))
-            
-            return intersection / union if union > 0 else 0.0
-        
-        except Exception as e:
-            logger.error(f"Keyword overlap calculation failed: {e}")
-            return 0.0
-    
-    def calculate_comprehensive_similarity(self, resume_text: str, jd_text: str) -> Dict[str, float]:
-        """Calculate multiple similarity metrics"""
-        
-        # Preprocess texts
-        preprocessor = TextPreprocessor()
-        resume_clean = preprocessor.preprocess(resume_text)
-        jd_clean = preprocessor.preprocess(jd_text)
-        
-        # Calculate different similarities
-        similarities = {
-            'tfidf_similarity': self.calculate_tfidf_similarity(resume_clean, jd_clean),
-            'semantic_similarity': self.calculate_semantic_similarity(resume_clean, jd_clean),
-            'keyword_overlap': self.calculate_keyword_overlap(resume_clean, jd_clean)
-        }
-        
-        # Calculate weighted average
-        weights = {'tfidf_similarity': 0.4, 'semantic_similarity': 0.4, 'keyword_overlap': 0.2}
-        weighted_score = sum(similarities[key] * weights[key] for key in similarities)
-        similarities['overall_similarity'] = weighted_score
-        
-        # Extract skills overlap
-        resume_skills = preprocessor.extract_skills(resume_text)
-        jd_skills = preprocessor.extract_skills(jd_text)
-        
-        if jd_skills:
-            skills_overlap = len(set(resume_skills).intersection(set(jd_skills))) / len(jd_skills)
-        else:
-            skills_overlap = 0.0
-        
-        similarities['skills_overlap'] = skills_overlap
-        
-        return similarities
+    except Exception:
+        return 0.0
 
-class DatabaseManager:
-    """Manage SQLite database for storing results"""
-    
-    def __init__(self, db_path: str = "resume_relevance.db"):
-        self.db_path = db_path
-        self.init_database()
-    
-    def init_database(self):
-        """Initialize database with required tables"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Create results table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS results (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                jd_filename TEXT,
-                resume_filename TEXT,
-                candidate_name TEXT,
-                overall_similarity REAL,
-                tfidf_similarity REAL,
-                semantic_similarity REAL,
-                keyword_overlap REAL,
-                skills_overlap REAL,
-                similarity_percentage REAL,
-                ranking INTEGER,
-                notes TEXT
-            )
-        ''')
-        
-        # Create job descriptions table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS job_descriptions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                filename TEXT UNIQUE,
-                content TEXT,
-                extracted_skills TEXT,
-                created_date DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
-    
-    def save_results(self, results: List[Dict]) -> bool:
-        """Save evaluation results to database"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+def get_ml_prediction(resume_text: str) -> Dict[str, Any]:
+    """Get ML prediction for resume classification"""
+    try:
+        if os.path.exists('resume_model.joblib'):
+            model_data = joblib.load('resume_model.joblib')
             
-            for result in results:
-                cursor.execute('''
-                    INSERT INTO results 
-                    (jd_filename, resume_filename, candidate_name, overall_similarity, 
-                     tfidf_similarity, semantic_similarity, keyword_overlap, skills_overlap, 
-                     similarity_percentage, ranking, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    result.get('jd_filename', ''),
-                    result.get('resume_filename', ''),
-                    result.get('candidate_name', ''),
-                    result.get('overall_similarity', 0.0),
-                    result.get('tfidf_similarity', 0.0),
-                    result.get('semantic_similarity', 0.0),
-                    result.get('keyword_overlap', 0.0),
-                    result.get('skills_overlap', 0.0),
-                    result.get('similarity_percentage', 0.0),
-                    result.get('ranking', 0),
-                    result.get('notes', '')
-                ))
+            vectorizer = model_data['vectorizer']
+            model = model_data['model']
             
-            conn.commit()
-            conn.close()
-            return True
-        
-        except Exception as e:
-            logger.error(f"Failed to save results: {e}")
-            return False
-    
-    def get_results(self, limit: int = 100) -> List[Dict]:
-        """Retrieve results from database"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            resume_vector = vectorizer.transform([resume_text.lower()])
+            prediction = model.predict(resume_vector)[0]
+            probabilities = model.predict_proba(resume_vector)[0]
+            confidence = float(max(probabilities))
             
-            cursor.execute('''
-                SELECT * FROM results 
-                ORDER BY timestamp DESC 
-                LIMIT ?
-            ''', (limit,))
-            
-            rows = cursor.fetchall()
-            columns = [description[0] for description in cursor.description]
-            
-            results = []
-            for row in rows:
-                results.append(dict(zip(columns, row)))
-            
-            conn.close()
-            return results
-        
-        except Exception as e:
-            logger.error(f"Failed to retrieve results: {e}")
-            return []
-    
-    def save_job_description(self, filename: str, content: str, skills: List[str]) -> bool:
-        """Save job description to database"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT OR REPLACE INTO job_descriptions (filename, content, extracted_skills)
-                VALUES (?, ?, ?)
-            ''', (filename, content, json.dumps(skills)))
-            
-            conn.commit()
-            conn.close()
-            return True
-        
-        except Exception as e:
-            logger.error(f"Failed to save job description: {e}")
-            return False
-
-class MLModelTrainer:
-    """Train custom ML models for resume relevance scoring"""
-    
-    def __init__(self):
-        self.models = {}
-        self.vectorizer = None
-        self.label_encoder = None
-        self.preprocessor = TextPreprocessor()
-    
-    def load_dataset(self, csv_path: str = "resume_dataset.csv") -> pd.DataFrame:
-        """Load and prepare the resume dataset"""
-        try:
-            df = pd.read_csv(csv_path)
-            logger.info(f"✅ Loaded dataset with {len(df)} resumes")
-            logger.info(f"📊 Categories: {df['Category'].nunique()} unique job categories")
-            
-            return df
-        
-        except Exception as e:
-            logger.error(f"Failed to load dataset: {e}")
-            return None
-    
-    def prepare_features(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
-        """Prepare features and labels for ML training"""
-        
-        # Clean resume text
-        df['Resume_Clean'] = df['Resume'].apply(self.preprocessor.preprocess)
-        
-        # Extract features using TF-IDF
-        self.vectorizer = TfidfVectorizer(
-            max_features=3000,
-            stop_words='english',
-            ngram_range=(1, 2),
-            min_df=2,
-            max_df=0.95
-        )
-        
-        X = self.vectorizer.fit_transform(df['Resume_Clean'])
-        
-        # Encode labels
-        self.label_encoder = LabelEncoder()
-        y = self.label_encoder.fit_transform(df['Category'])
-        
-        logger.info(f"✅ Feature matrix shape: {X.shape}")
-        logger.info(f"✅ Number of classes: {len(self.label_encoder.classes_)}")
-        
-        return X.toarray(), y
-    
-    def train_models(self, X: np.ndarray, y: np.ndarray) -> Dict[str, float]:
-        """Train multiple ML models and return performance metrics"""
-        
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
-        
-        # Define models
-        models_config = {
-            'Random Forest': RandomForestClassifier(n_estimators=100, random_state=42),
-            'Logistic Regression': LogisticRegression(random_state=42, max_iter=1000),
-            'SVM': SVC(random_state=42, probability=True)
-        }
-        
-        results = {}
-        
-        for name, model in models_config.items():
-            logger.info(f"Training {name}...")
-            
-            # Train model
-            model.fit(X_train, y_train)
-            
-            # Evaluate
-            train_score = model.score(X_train, y_train)
-            test_score = model.score(X_test, y_test)
-            
-            # Store model and results
-            self.models[name] = model
-            results[name] = {
-                'train_accuracy': train_score,
-                'test_accuracy': test_score,
-                'model': model
-            }
-            
-            logger.info(f"✅ {name} - Train: {train_score:.3f}, Test: {test_score:.3f}")
-        
-        # Select best model
-        best_model_name = max(results.keys(), key=lambda k: results[k]['test_accuracy'])
-        self.best_model = results[best_model_name]['model']
-        
-        logger.info(f"🏆 Best model: {best_model_name}")
-        
-        return results
-    
-    def save_model(self, model_path: str = "models/custom_model.joblib"):
-        """Save trained model and preprocessing components"""
-        try:
-            os.makedirs(os.path.dirname(model_path), exist_ok=True)
-            
-            model_data = {
-                'model': self.best_model,
-                'vectorizer': self.vectorizer,
-                'label_encoder': self.label_encoder,
-                'preprocessor': self.preprocessor
-            }
-            
-            joblib.dump(model_data, model_path)
-            logger.info(f"✅ Model saved to {model_path}")
-            
-        except Exception as e:
-            logger.error(f"Failed to save model: {e}")
-    
-    def load_model(self, model_path: str = "models/custom_model.joblib") -> bool:
-        """Load pre-trained model"""
-        try:
-            if not os.path.exists(model_path):
-                logger.warning(f"Model file not found: {model_path}")
-                return False
-            
-            model_data = joblib.load(model_path)
-            
-            self.best_model = model_data['model']
-            self.vectorizer = model_data['vectorizer']
-            self.label_encoder = model_data['label_encoder']
-            self.preprocessor = model_data['preprocessor']
-            
-            logger.info(f"✅ Model loaded from {model_path}")
-            return True
-        
-        except Exception as e:
-            logger.error(f"Failed to load model: {e}")
-            return False
-    
-    def predict_category(self, resume_text: str) -> Dict[str, Union[str, float]]:
-        """Predict resume category using trained model"""
-        
-        if not hasattr(self, 'best_model') or self.best_model is None:
-            return {'category': 'Unknown', 'confidence': 0.0}
-        
-        try:
-            # Preprocess text
-            clean_text = self.preprocessor.preprocess(resume_text)
-            
-            # Vectorize
-            X = self.vectorizer.transform([clean_text])
-            
-            # Predict
-            prediction = self.best_model.predict(X)[0]
-            confidence = max(self.best_model.predict_proba(X)[0])
-            
-            # Decode category
-            category = self.label_encoder.inverse_transform([prediction])[0]
+            if confidence >= 0.8:
+                recommendation = "Excellent Fit"
+            elif confidence >= 0.6:
+                recommendation = "Strong Candidate"
+            elif confidence >= 0.4:
+                recommendation = "Potential Candidate"
+            else:
+                recommendation = "Needs Review"
             
             return {
-                'category': category,
-                'confidence': float(confidence)
+                'category': prediction,
+                'confidence': confidence,
+                'confidence_percentage': f"{confidence*100:.1f}%",
+                'hiring_recommendation': recommendation,
+                'prediction_successful': True
             }
-        
-        except Exception as e:
-            logger.error(f"Prediction failed: {e}")
-            return {'category': 'Unknown', 'confidence': 0.0}
+    except Exception:
+        pass
+    
+    return {
+        'category': 'Classification Unavailable',
+        'confidence': 0.0,
+        'confidence_percentage': '0.0%',
+        'hiring_recommendation': 'Manual Review Required',
+        'prediction_successful': False
+    }
 
-class ResumeAnalyzer:
-    """Main class for comprehensive resume analysis"""
+def extract_skills_advanced(text: str) -> Dict[str, List[str]]:
+    """Extract skills from text"""
+    skills_database = {
+        'Programming': ['python', 'java', 'javascript', 'react', 'node', 'django', 'spring'],
+        'Databases': ['mysql', 'postgresql', 'mongodb', 'oracle', 'redis'],
+        'Cloud': ['aws', 'azure', 'docker', 'kubernetes', 'terraform'],
+        'Tools': ['git', 'jenkins', 'jira', 'confluence', 'slack']
+    }
     
-    def __init__(self):
-        self.text_extractor = TextExtractor()
-        self.similarity_calculator = SimilarityCalculator()
-        self.db_manager = DatabaseManager()
-        self.ml_trainer = MLModelTrainer()
-        
-        # Try to load pre-trained model
-        self.ml_trainer.load_model()
+    found_skills = {}
+    text_lower = text.lower()
     
-    def analyze_batch(self, jd_text: str, resume_files: List, 
-                     min_score_threshold: float = 0.0, 
-                     mode: str = "tfidf") -> List[Dict]:
-        """Analyze multiple resumes against a job description"""
+    for category, skills in skills_database.items():
+        category_skills = []
+        for skill in skills:
+            if skill in text_lower:
+                category_skills.append(skill.title())
         
-        results = []
-        
-        logger.info(f"🔄 Analyzing {len(resume_files)} resumes...")
-        
-        for i, resume_file in enumerate(resume_files):
-            try:
-                # Extract resume text
-                resume_text = self.text_extractor.extract_from_uploaded_file(resume_file)
-                
-                if not resume_text:
-                    logger.warning(f"Could not extract text from {resume_file.name}")
-                    continue
-                
-                # Calculate similarities
-                if mode == "semantic" and SENTENCE_TRANSFORMERS_AVAILABLE:
-                    similarities = self.similarity_calculator.calculate_comprehensive_similarity(resume_text, jd_text)
-                    primary_score = similarities['semantic_similarity']
-                else:
-                    similarities = self.similarity_calculator.calculate_comprehensive_similarity(resume_text, jd_text)
-                    primary_score = similarities['tfidf_similarity']
-                
-                # Convert to percentage
-                similarity_percentage = primary_score * 100
-                
-                # Apply threshold filter
-                if similarity_percentage < min_score_threshold:
-                    continue
-                
-                # Extract candidate name (simple heuristic)
-                candidate_name = self._extract_candidate_name(resume_text)
-                
-                # Get ML prediction if model is available
-                ml_prediction = self.ml_trainer.predict_category(resume_text)
-                
-                # Create result
-                result = {
-                    'resume_filename': resume_file.name,
-                    'candidate_name': candidate_name,
-                    'resume_text': resume_text[:1000] + "..." if len(resume_text) > 1000 else resume_text,
-                    'similarity_percentage': round(similarity_percentage, 2),
-                    'ml_category': ml_prediction['category'],
-                    'ml_confidence': round(ml_prediction['confidence'], 3),
-                    'ranking': i + 1,  # Will be updated after sorting
-                    **similarities
-                }
-                
-                results.append(result)
-                
-            except Exception as e:
-                logger.error(f"Error analyzing {resume_file.name}: {e}")
-                continue
-        
-        # Sort by similarity score
-        results.sort(key=lambda x: x['similarity_percentage'], reverse=True)
-        
-        # Update rankings
-        for i, result in enumerate(results):
-            result['ranking'] = i + 1
-        
-        logger.info(f"✅ Successfully analyzed {len(results)} resumes")
-        
-        return results
+        if category_skills:
+            found_skills[category] = category_skills
     
-    def _extract_candidate_name(self, resume_text: str) -> str:
-        """Extract candidate name from resume text (simple heuristic)"""
-        lines = resume_text.strip().split('\n')[:5]  # Check first 5 lines
-        
-        for line in lines:
-            line = line.strip()
-            # Look for lines that might be names (2-4 words, title case, no numbers)
-            if (2 <= len(line.split()) <= 4 and 
-                line.istitle() and 
-                not any(char.isdigit() for char in line) and
-                len(line) > 5):
-                return line
-        
-        return "Name not found"
+    return found_skills
+
+def create_score_chart(scores: List[float]):
+    """Create score distribution chart"""
+    if not scores:
+        return None
     
-    def get_similarity_insights(self, results: List[Dict]) -> Dict:
-        """Generate insights from similarity analysis"""
+    try:
+        fig = px.histogram(
+            x=scores,
+            nbins=min(15, len(scores)),
+            title="Score Distribution",
+            labels={'x': 'Score (%)', 'y': 'Count'},
+            color_discrete_sequence=['#2563eb']
+        )
         
-        if not results:
-            return {}
+        mean_score = np.mean(scores)
+        fig.add_vline(x=mean_score, line_dash="dash", line_color="#059669", 
+                      annotation_text=f"Average: {mean_score:.1f}%")
         
-        scores = [r['similarity_percentage'] for r in results]
+        fig.update_layout(height=400, showlegend=False)
+        return fig
+    except Exception:
+        return None
+
+def create_hiring_chart(recommendations: List[str]):
+    """Create hiring recommendations chart"""
+    if not recommendations:
+        return None
+    
+    try:
+        rec_counts = pd.Series(recommendations).value_counts()
         
-        insights = {
-            'total_resumes': len(results),
-            'average_score': round(np.mean(scores), 2),
-            'highest_score': round(max(scores), 2),
-            'lowest_score': round(min(scores), 2),
-            'score_std': round(np.std(scores), 2),
-            'top_candidate': results[0]['candidate_name'] if results else None,
-            'high_scoring_count': len([s for s in scores if s >= 70]),
-            'medium_scoring_count': len([s for s in scores if 50 <= s < 70]),
-            'low_scoring_count': len([s for s in scores if s < 50])
+        color_map = {            'Excellent Fit': '#059669',
+            'Strong Candidate': '#2563eb',
+            'Good Candidate': '#0ea5e9',
+            'Potential Candidate': '#d97706',
+            'Needs Review': '#dc2626',
+            'Manual Review Required': '#64748b'
         }
         
-        return insights
-
-# Utility functions for Streamlit integration
-def initialize_components():
-    """Initialize all components for the Streamlit app"""
-    return ResumeAnalyzer()
-
-def export_results_to_csv(results: List[Dict]) -> str:
-    """Export results to CSV format"""
-    try:
-        df = pd.DataFrame(results)
+        colors = [color_map.get(rec, '#64748b') for rec in rec_counts.index]
         
-        # Select relevant columns for export
-        export_columns = [
-            'ranking', 'resume_filename', 'candidate_name', 
-            'similarity_percentage', 'ml_category', 'ml_confidence',
-            'tfidf_similarity', 'semantic_similarity', 'skills_overlap'
-        ]
+        fig = go.Figure(data=[
+            go.Bar(
+                x=rec_counts.index,
+                y=rec_counts.values,
+                marker_color=colors,
+                text=rec_counts.values,
+                textposition='auto'
+            )
+        ])
         
-        df_export = df[export_columns]
-        csv_string = df_export.to_csv(index=False)
+        fig.update_layout(
+            title="Hiring Recommendations",
+            xaxis_title="Recommendation",
+            yaxis_title="Count",
+            height=400
+        )
         
-        return csv_string
-    
-    except Exception as e:
-        logger.error(f"CSV export failed: {e}")
-        return ""
-
-# Main execution
-if __name__ == "__main__":
-    # Test the components
-    analyzer = ResumeAnalyzer()
-    
-    # Test ML training if dataset is available
-    if os.path.exists("resume_dataset.csv"):
-        df = analyzer.ml_trainer.load_dataset()
-        if df is not None:
-            X, y = analyzer.ml_trainer.prepare_features(df)
-            results = analyzer.ml_trainer.train_models(X, y)
-            analyzer.ml_trainer.save_model()
-            print("✅ ML model training completed")
-    
-    print("✅ Utils module loaded successfully")
+        return fig
+    except Exception:
+        return None
